@@ -44,6 +44,9 @@ const imageCount = 20
 const requiredTargets = new Set([4,5,6,7,8,9])
 const selectedTargets = new Set()
 
+// If any invalid image is clicked/selected, verification must fail
+let invalidSelected = false
+
 // Global no-reuse and no-duplicate-on-screen
 const usedNumbers = new Set()
 const currentOnScreen = new Set()
@@ -72,6 +75,12 @@ const shuffle = (arr) => {
 
 // Build a deck once
 let deck = shuffle(Array.from({ length: imageCount }, (_, i) => i + 1))
+
+// Remove a specific number from the deck (so it can never appear again)
+const removeFromDeck = (n) => {
+  const idx = deck.indexOf(n)
+  if (idx >= 0) deck.splice(idx, 1)
+}
 
 // Draw next number from deck that is:
 // - not used globally
@@ -139,8 +148,25 @@ const refreshImage = (image) => {
   }, 1000)
 }
 
-// Build 3×3 grid
+
+// Build 3×3 grid – start with ONLY 3 valid images showing
 const solveImageContainer = document.getElementById("solve-image-main-container")
+
+// pick 3 targets to show at start
+const targetsToShow = shuffle(Array.from(requiredTargets)).slice(0, 3)
+// remove them from deck so they are not drawn again
+targetsToShow.forEach(removeFromDeck)
+
+// pick 6 non-targets to show at start (consume from deck to ensure uniqueness)
+const nonTargetsToShow = []
+while (deck.length > 0 && nonTargetsToShow.length < 6) {
+  const n = deck.shift()
+  if (!requiredTargets.has(n)) nonTargetsToShow.push(n)
+}
+// initial pool of 9 images
+const initialNumbers = shuffle([...targetsToShow, ...nonTargetsToShow])
+
+let initIdx = 0
 for (let i = 0; i < 3; i++) {
   for (let j = 0; j < 3; j++) {
     const imageContainer = document.createElement("div")
@@ -149,18 +175,20 @@ for (let i = 0; i < 3; i++) {
     const image = document.createElement("img")
     image.classList.add("solve-image")
 
-    setImageNumber(image, drawNextNumber())
+    setImageNumber(image, initialNumbers[initIdx++] ?? drawNextNumber())
 
     image.addEventListener("click", () => {
       const num = getImgNumber(image)
 
       // Clicking a valid image selects it; then it is replaced and will never appear again
-      if (isTargetNumber(num) && !selectedTargets.has(num)) {
-        selectedTargets.add(num)
+      if (isTargetNumber(num)) {
+        if (!selectedTargets.has(num)) selectedTargets.add(num)
         refreshImage(image)
         return
       }
 
+      // Clicking an invalid image marks the attempt as invalid
+      invalidSelected = true
       refreshImage(image)
     })
 
@@ -171,9 +199,9 @@ for (let i = 0; i < 3; i++) {
 
 fadeAllIfNoTargetsVisible()
 
-// Verify succeeds only if user has selected all targets
+// Verify succeeds only if user selected all targets AND no invalid was selected
 document.getElementById("verify").addEventListener("click", () => {
-  if (selectedTargets.size === requiredTargets.size) {
+  if (!invalidSelected && selectedTargets.size === requiredTargets.size) {
     document.getElementById("solve-image-error-msg").style.display = "none"
     document.getElementById("solve-box").style.display = "none"
   } else {
@@ -220,3 +248,4 @@ document.getElementById("audio").addEventListener("click",()=> {
     document.getElementById("solve-image-div").style.display = "none"
     document.getElementById("solve-audio-div").style.display = "block"
 })
+
