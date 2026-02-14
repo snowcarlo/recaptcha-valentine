@@ -40,16 +40,13 @@ document.getElementById("submit").addEventListener("click",()=>{
 // fill up the solve-image-container
 const imageCount = 20
 
-// RULES:
-// - Valid targets are img4..img9 (jpg or png).
-// - User must click/select all valid targets, then press Verify.
-// - Any image (valid or invalid) must never appear again once it has appeared anywhere in the puzzle.
-// - No image may appear more than once at the same time (enforced via reservations).
-// - Targets should not disappear unless the user selects them (to avoid making the puzzle impossible).
+// Valid targets: user must click/select all, then press Verify
 const requiredTargets = new Set([4,5,6,7,8,9])
 const selectedTargets = new Set()
+
+// Global no-reuse and no-duplicate-on-screen
 const usedNumbers = new Set()
-const reservedNumbers = new Set()
+const currentOnScreen = new Set()
 
 const getImgNumber = (imgEl) => {
   const src = imgEl.getAttribute("src") || ""
@@ -64,51 +61,52 @@ const isAnyTargetVisible = () => {
   return imgs.some(img => isTargetNumber(getImgNumber(img)))
 }
 
-const markUsed = (n) => {
-  if (n !== null) usedNumbers.add(n)
+// Shuffle once (not random on every pick)
+const shuffle = (arr) => {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+  return arr
 }
 
-const pickFromPool = (pool) => pool[Math.floor(Math.random() * pool.length)]
+// Build a deck once
+let deck = shuffle(Array.from({ length: imageCount }, (_, i) => i + 1))
 
-const pickNewNumber = (currentNumber = null) => {
-  // Never reuse any image that has already appeared OR is currently reserved for another tile refresh.
-  const unused = []
-  for (let n = 1; n <= imageCount; n++) {
-    if (!usedNumbers.has(n) && !reservedNumbers.has(n)) unused.push(n)
+// Draw next number from deck that is:
+// - not used globally
+// - not currently on screen
+// - not an already-selected target (never reappear)
+const drawNextNumber = () => {
+  while (deck.length > 0) {
+    const n = deck.shift()
+
+    if (usedNumbers.has(n)) continue
+    if (currentOnScreen.has(n)) continue
+    if (selectedTargets.has(n)) continue
+
+    return n
   }
-  if (unused.length === 0) return null
-
-  // Prefer remaining (unselected) targets, but only if they are unused and not reserved
-  const remainingTargets = Array.from(requiredTargets).filter(
-    n => !selectedTargets.has(n) && !usedNumbers.has(n) && !reservedNumbers.has(n)
-  )
-  if (remainingTargets.length > 0) return pickFromPool(remainingTargets)
-
-  // Otherwise pick any unused non-target
-  let pool = unused.filter(n => !requiredTargets.has(n))
-
-  // If only targets remain unused (edge case), allow them
-  if (pool.length === 0) pool = unused
-
-  // Avoid immediate same-tile repeat when possible
-  if (currentNumber !== null && pool.length > 1) {
-    const filtered = pool.filter(n => n !== currentNumber)
-    if (filtered.length > 0) pool = filtered
-  }
-
-  return pickFromPool(pool)
+  return null
 }
 
 const setImageNumber = (imgEl, n) => {
+  // Remove the previous number from "currentOnScreen"
+  const prev = getImgNumber(imgEl)
+  if (prev !== null) currentOnScreen.delete(prev)
+
   if (n === null) {
     imgEl.setAttribute("src", "")
     imgEl.style.pointerEvents = "none"
     return
   }
-  // Use .jpg by default
+
+  // Uses .jpg; ensure your files are ./images/img1.jpg ... ./images/img20.jpg
   imgEl.setAttribute("src", `./images/img${n}.jpg`)
   imgEl.style.pointerEvents = "auto"
-  markUsed(n)
+
+  usedNumbers.add(n)
+  currentOnScreen.add(n)
 }
 
 const fadeAllIfNoTargetsVisible = () => {
@@ -122,73 +120,59 @@ const fadeAllIfNoTargetsVisible = () => {
   }, 300)
 }
 
-
-// image on click will refresh new image (but do not allow unselected targets to disappear)
+// Do not allow an unselected target to disappear (otherwise it may become impossible)
 const refreshImage = (image) => {
-    const current = getImgNumber(image)
+  const current = getImgNumber(image)
+  if (isTargetNumber(current) && !selectedTargets.has(current)) {
+    return
+  }
 
-    // Prevent losing a valid target before selection
-    if (isTargetNumber(current) && !selectedTargets.has(current)) {
-        return
-    }
+  image.classList.add("fade-out")
+  image.style.pointerEvents = "none"
 
-    // Pick + reserve immediately to prevent duplicates during async refresh
-    const next = pickNewNumber(current)
-    if (next !== null) reservedNumbers.add(next)
-
-    image.classList.add("fade-out")
-    image.style.pointerEvents = "none"
-    setTimeout(()=>{
-        image.setAttribute("src","")
-        setImageNumber(image, next)
-        if (next !== null) reservedNumbers.delete(next)
-        fadeAllIfNoTargetsVisible()
-        image.classList.remove("fade-out")
-        image.style.pointerEvents = "auto"
-    },1000)
+  setTimeout(() => {
+    const n = drawNextNumber()
+    setImageNumber(image, n)
+    fadeAllIfNoTargetsVisible()
+    image.classList.remove("fade-out")
+    image.style.pointerEvents = "auto"
+  }, 1000)
 }
 
-
-// build the 3×3 grid
+// Build 3×3 grid
 const solveImageContainer = document.getElementById("solve-image-main-container")
-for (let i=0; i<3; i++) {
-    for (let j=0; j<3; j++) {
-        const imageContainer = document.createElement("div")
-        imageContainer.classList.add("solve-image-container")
+for (let i = 0; i < 3; i++) {
+  for (let j = 0; j < 3; j++) {
+    const imageContainer = document.createElement("div")
+    imageContainer.classList.add("solve-image-container")
 
-        const image = document.createElement("img")
-        image.classList.add("solve-image")
+    const image = document.createElement("img")
+    image.classList.add("solve-image")
 
-        // initial fill using the no-reuse logic (reserve while assigning to avoid duplicates)
-        const n = pickNewNumber(null)
-        if (n !== null) reservedNumbers.add(n)
-        setImageNumber(image, n)
-        if (n !== null) reservedNumbers.delete(n)
+    setImageNumber(image, drawNextNumber())
 
-        image.addEventListener("click",()=>{
-            const num = getImgNumber(image)
+    image.addEventListener("click", () => {
+      const num = getImgNumber(image)
 
-            // Clicking a valid image selects it; then it is replaced and will never reappear
-            if (isTargetNumber(num) && !selectedTargets.has(num)) {
-                selectedTargets.add(num)
-                refreshImage(image)
-                return
-            }
+      // Clicking a valid image selects it; then it is replaced and will never appear again
+      if (isTargetNumber(num) && !selectedTargets.has(num)) {
+        selectedTargets.add(num)
+        refreshImage(image)
+        return
+      }
 
-            // Clicking any other image refreshes it (no repeats globally)
-            refreshImage(image)
-        })
+      refreshImage(image)
+    })
 
-        imageContainer.appendChild(image)
-        solveImageContainer.appendChild(imageContainer)
-    }
+    imageContainer.appendChild(image)
+    solveImageContainer.appendChild(imageContainer)
+  }
 }
 
 fadeAllIfNoTargetsVisible()
 
-
-// verify succeeds only if user has selected all targets
-document.getElementById("verify").addEventListener("click",()=> {
+// Verify succeeds only if user has selected all targets
+document.getElementById("verify").addEventListener("click", () => {
   if (selectedTargets.size === requiredTargets.size) {
     document.getElementById("solve-image-error-msg").style.display = "none"
     document.getElementById("solve-box").style.display = "none"
@@ -197,35 +181,26 @@ document.getElementById("verify").addEventListener("click",()=> {
   }
 })
 
-
-// refresh button: refresh all non-target tiles; keep any unselected targets in place
+// Refresh button: refresh all non-target tiles; keep any unselected targets in place
 const refreshButton = document.getElementById("refresh")
-refreshButton.addEventListener("click",()=>{
-    refreshButton.style.pointerEvents = "none"
-    solveImageContainer.classList.add("fade-out")
-    document.getElementById("solve-image-error-msg").style.display = "none"
+refreshButton.addEventListener("click", () => {
+  refreshButton.style.pointerEvents = "none"
+  solveImageContainer.classList.add("fade-out")
+  document.getElementById("solve-image-error-msg").style.display = "none"
 
-    setTimeout(()=> {
-        solveImageContainer.classList.remove("fade-out")
+  setTimeout(() => {
+    solveImageContainer.classList.remove("fade-out")
 
-        reservedNumbers.clear()
+    const imgs = Array.from(document.querySelectorAll(".solve-image"))
+    imgs.forEach(img => {
+      const num = getImgNumber(img)
+      if (isTargetNumber(num) && !selectedTargets.has(num)) return
+      setImageNumber(img, drawNextNumber())
+    })
 
-        const imgs = Array.from(document.querySelectorAll(".solve-image"))
-        imgs.forEach(img => {
-          const num = getImgNumber(img)
-          if (isTargetNumber(num) && !selectedTargets.has(num)) {
-            return // keep unselected valid targets visible
-          }
-
-          const n = pickNewNumber(num)
-          if (n !== null) reservedNumbers.add(n)
-          setImageNumber(img, n)
-          if (n !== null) reservedNumbers.delete(n)
-        })
-
-        fadeAllIfNoTargetsVisible()
-        refreshButton.style.pointerEvents = "auto"
-    },1000)
+    fadeAllIfNoTargetsVisible()
+    refreshButton.style.pointerEvents = "auto"
+  }, 1000)
 })
 
 
@@ -240,7 +215,7 @@ document.getElementById("information").addEventListener("click",() =>{
     }
 })
 
-// show audio div
+// show audio div 
 document.getElementById("audio").addEventListener("click",()=> {
     document.getElementById("solve-image-div").style.display = "none"
     document.getElementById("solve-audio-div").style.display = "block"
