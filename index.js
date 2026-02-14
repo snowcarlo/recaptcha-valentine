@@ -44,10 +44,12 @@ const imageCount = 20
 // - Valid targets are img4..img9 (jpg or png).
 // - User must click/select all valid targets, then press Verify.
 // - Any image (valid or invalid) must never appear again once it has appeared anywhere in the puzzle.
+// - No image may appear more than once at the same time (enforced via reservations).
 // - Targets should not disappear unless the user selects them (to avoid making the puzzle impossible).
 const requiredTargets = new Set([4,5,6,7,8,9])
 const selectedTargets = new Set()
 const usedNumbers = new Set()
+const reservedNumbers = new Set()
 
 const getImgNumber = (imgEl) => {
   const src = imgEl.getAttribute("src") || ""
@@ -69,15 +71,17 @@ const markUsed = (n) => {
 const pickFromPool = (pool) => pool[Math.floor(Math.random() * pool.length)]
 
 const pickNewNumber = (currentNumber = null) => {
-  // Never reuse any image that has already appeared
+  // Never reuse any image that has already appeared OR is currently reserved for another tile refresh.
   const unused = []
   for (let n = 1; n <= imageCount; n++) {
-    if (!usedNumbers.has(n)) unused.push(n)
+    if (!usedNumbers.has(n) && !reservedNumbers.has(n)) unused.push(n)
   }
   if (unused.length === 0) return null
 
-  // Prefer remaining (unselected) targets, but only if they are unused
-  const remainingTargets = Array.from(requiredTargets).filter(n => !selectedTargets.has(n) && !usedNumbers.has(n))
+  // Prefer remaining (unselected) targets, but only if they are unused and not reserved
+  const remainingTargets = Array.from(requiredTargets).filter(
+    n => !selectedTargets.has(n) && !usedNumbers.has(n) && !reservedNumbers.has(n)
+  )
   if (remainingTargets.length > 0) return pickFromPool(remainingTargets)
 
   // Otherwise pick any unused non-target
@@ -86,7 +90,7 @@ const pickNewNumber = (currentNumber = null) => {
   // If only targets remain unused (edge case), allow them
   if (pool.length === 0) pool = unused
 
-  // Avoid immediate same-tile repeat when possible (mostly redundant because of usedNumbers)
+  // Avoid immediate same-tile repeat when possible
   if (currentNumber !== null && pool.length > 1) {
     const filtered = pool.filter(n => n !== currentNumber)
     if (filtered.length > 0) pool = filtered
@@ -101,7 +105,7 @@ const setImageNumber = (imgEl, n) => {
     imgEl.style.pointerEvents = "none"
     return
   }
-  // Use .jpg by default; adjust here if you want png-only
+  // Use .jpg by default
   imgEl.setAttribute("src", `./images/img${n}.jpg`)
   imgEl.style.pointerEvents = "auto"
   markUsed(n)
@@ -123,17 +127,21 @@ const fadeAllIfNoTargetsVisible = () => {
 const refreshImage = (image) => {
     const current = getImgNumber(image)
 
-    // Prevent losing a valid target before selection (otherwise it might never come back due to no-reuse rule)
+    // Prevent losing a valid target before selection
     if (isTargetNumber(current) && !selectedTargets.has(current)) {
         return
     }
+
+    // Pick + reserve immediately to prevent duplicates during async refresh
+    const next = pickNewNumber(current)
+    if (next !== null) reservedNumbers.add(next)
 
     image.classList.add("fade-out")
     image.style.pointerEvents = "none"
     setTimeout(()=>{
         image.setAttribute("src","")
-        const n = pickNewNumber(current)
-        setImageNumber(image, n)
+        setImageNumber(image, next)
+        if (next !== null) reservedNumbers.delete(next)
         fadeAllIfNoTargetsVisible()
         image.classList.remove("fade-out")
         image.style.pointerEvents = "auto"
@@ -151,9 +159,11 @@ for (let i=0; i<3; i++) {
         const image = document.createElement("img")
         image.classList.add("solve-image")
 
-        // initial fill using the no-reuse logic
+        // initial fill using the no-reuse logic (reserve while assigning to avoid duplicates)
         const n = pickNewNumber(null)
+        if (n !== null) reservedNumbers.add(n)
         setImageNumber(image, n)
+        if (n !== null) reservedNumbers.delete(n)
 
         image.addEventListener("click",()=>{
             const num = getImgNumber(image)
@@ -198,15 +208,19 @@ refreshButton.addEventListener("click",()=>{
     setTimeout(()=> {
         solveImageContainer.classList.remove("fade-out")
 
+        reservedNumbers.clear()
+
         const imgs = Array.from(document.querySelectorAll(".solve-image"))
         imgs.forEach(img => {
           const num = getImgNumber(img)
           if (isTargetNumber(num) && !selectedTargets.has(num)) {
             return // keep unselected valid targets visible
           }
-          // hard refresh without animation, but still no-reuse
+
           const n = pickNewNumber(num)
+          if (n !== null) reservedNumbers.add(n)
           setImageNumber(img, n)
+          if (n !== null) reservedNumbers.delete(n)
         })
 
         fadeAllIfNoTargetsVisible()
@@ -231,4 +245,3 @@ document.getElementById("audio").addEventListener("click",()=> {
     document.getElementById("solve-image-div").style.display = "none"
     document.getElementById("solve-audio-div").style.display = "block"
 })
-
