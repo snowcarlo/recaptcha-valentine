@@ -71,7 +71,7 @@ const shuffle = (arr) => {
 // Stage 1 starts with only three valid images.
 let priorityQueue = shuffle([...stage1Targets])
 
-// Deck is for non-target filler images; built once and consumed sequentially.
+// Deck is for filler images only – excludes ALL targets (4..9), so stage2 targets cannot appear in stage 1.
 const nonTargetNumbers = []
 for (let n = 1; n <= imageCount; n++) {
   if (!requiredTargets.has(n)) nonTargetNumbers.push(n)
@@ -116,6 +116,17 @@ const setImageNumber = (imgEl, n) => {
     return
   }
 
+  // Safety: never show stage2 targets during stage 1 (even if something changes later)
+  if (stage === 1 && stage2Targets.includes(n)) {
+    // fall back to a filler draw
+    n = drawFromDeck()
+    if (n === null) {
+      imgEl.setAttribute("src", "")
+      imgEl.style.pointerEvents = "none"
+      return
+    }
+  }
+
   // Uses .jpg by default
   imgEl.setAttribute("src", `./images/img${n}.jpg`)
   imgEl.style.pointerEvents = "auto"
@@ -125,7 +136,7 @@ const setImageNumber = (imgEl, n) => {
 }
 
 const drawFromPriority = () => {
-  // Take the next available priority number that is not used and not on-screen.
+  // Take next current-stage valid target that is not used and not on-screen.
   while (priorityQueue.length > 0) {
     const n = priorityQueue.shift()
     if (selectedTargets.has(n)) continue
@@ -141,6 +152,8 @@ const drawFromDeck = () => {
     const n = deck.shift()
     if (usedNumbers.has(n)) continue
     if (currentOnScreen.has(n)) continue
+    // extra safety: exclude stage2 targets in stage1 (deck should already exclude)
+    if (stage === 1 && stage2Targets.includes(n)) continue
     return n
   }
   return null
@@ -177,18 +190,15 @@ const advanceToStage2 = () => {
   stage = 2
   priorityQueue = shuffle([...stage2Targets])
 
-  // fade the whole grid
   solveImageContainer.classList.add("fade-out")
   setTimeout(() => {
     solveImageContainer.classList.remove("fade-out")
 
-    // refresh every tile that is NOT an unselected valid (in stage 2, that means keep 7/8/9 if already visible, otherwise draw them)
     const imgs = Array.from(document.querySelectorAll(".solve-image"))
     imgs.forEach(img => {
       const num = getImgNumber(img)
       if (isValidNow(num) && !selectedTargets.has(num)) return
-      const n = drawNextNumber()
-      setImageNumber(img, n)
+      setImageNumber(img, drawNextNumber())
     })
 
     fadeAllIfNoValidVisible()
@@ -206,7 +216,7 @@ for (let i = 0; i < 3; i++) {
     const image = document.createElement("img")
     image.classList.add("solve-image")
 
-    // Initial fill: first three tiles drawn from priorityQueue will be the 3 stage-1 valid images.
+    // Initial fill: first three draws from priorityQueue will be stage-1 valid images (4/5/6)
     setImageNumber(image, drawNextNumber())
 
     image.addEventListener("click", () => {
@@ -225,7 +235,7 @@ for (let i = 0; i < 3; i++) {
         return
       }
 
-      // If user clicks an invalid image, mark invalid selection and refresh that tile
+      // Clicking anything else is an invalid selection
       hasInvalidSelection = true
       refreshImage(image)
     })
@@ -251,7 +261,7 @@ document.getElementById("verify").addEventListener("click", () => {
 })
 
 // Refresh button: refresh all non-valid tiles; keep any unselected valid image visible.
-// This also clears the "invalid selected" flag to allow retry.
+// This clears the "invalid selected" flag to allow retry.
 const refreshButton = document.getElementById("refresh")
 refreshButton.addEventListener("click", () => {
   refreshButton.style.pointerEvents = "none"
