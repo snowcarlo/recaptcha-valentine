@@ -243,4 +243,62 @@ const advanceToStage2 = () => {
 
 initialFillStage1()
 
+// Verify succeeds only if:
+// - all 6 targets selected
+// - no invalid image ever selected
+document.getElementById("verify").addEventListener("click", () => {
+  const allTargetsSelected = Array.from(requiredTargets).every((n) =>
+    selectedTargets.has(n)
+  )
+
+  if (allTargetsSelected && !hasInvalidSelection) {
+    document.getElementById("solve-image-error-msg").style.display = "none"
+    document.getElementById("solve-box").style.display = "none"
+
+    showSuccess()
+  } else {
+    document.getElementById("solve-image-error-msg").style.display = "block"
+  }
+})
+
+// Refresh button: refresh all non-valid tiles; keep any unselected valid image visible.
+// Clears invalid flag to allow retry (your earlier behaviour).
+const refreshButton = document.getElementById("refresh")
+refreshButton.addEventListener("click", () => {
+  refreshButton.style.pointerEvents = "none"
+  solveImageContainer.classList.add("fade-out")
+  document.getElementById("solve-image-error-msg").style.display = "none"
+
+  setTimeout(() => {
+    solveImageContainer.classList.remove("fade-out")
+
+    hasInvalidSelection = false
+
+    gridImages.forEach((imgEl) => {
+      const num = getImgNumber(imgEl)
+      if (isValidNow(num) && !selectedTargets.has(num)) return
+      setImageNumber(imgEl, drawFiller())
+    })
+
+    fadeAllIfNoValidVisible()
+    refreshButton.style.pointerEvents = "auto"
+  }, 1000)
+})
+
+// toggle information
+document.getElementById("information").addEventListener("click", () => {
+  const information = document.getElementById("information-text")
+  if (information.style.display == "block") {
+    information.style.display = "none"
+  } else {
+    information.style.display = "block"
+  }
+})
+
+// show audio div
+document.getElementById("audio").addEventListener("click", () => {
+  document.getElementById("solve-image-div").style.display = "none"
+  document.getElementById("solve-audio-div").style.display = "block"
+})
+
 // Verify
