@@ -16,6 +16,7 @@ captchaCheckbox.addEventListener("click", () => {
   checkboxSpinner.style.display = "block"
   captchaCheckbox.style.display = "none"
   captchaCheckbox.style.visibility = "false"
+
   setTimeout(() => {
     captchaCheckbox.style.display = "block"
     checkboxSpinner.style.display = "none"
@@ -41,17 +42,13 @@ const captchaMain = document.getElementById("captcha-main-div")
 const success = document.getElementById("success")
 const ytFrame = document.getElementById("yt")
 
-// Make sure success is hidden on load even if CSS fails
-if (success) success.classList.add("hidden")
-
 // Your video: https://www.youtube.com/watch?v=KfDargQ3jis&t=1s
-// Embed format + start time in seconds.
-// Autoplay is more reliable with mute=1.
+// Use embed URL + start time in seconds. Autoplay is more reliable with mute=1.
 const YT_EMBED_URL = "https://www.youtube.com/embed/KfDargQ3jis?start=1&autoplay=1&mute=1"
 
 function showSuccess() {
-  if (captchaMain) captchaMain.classList.add("hidden")
-  if (success) success.classList.remove("hidden")
+  if (captchaMain) captchaMain.style.display = "none"
+  if (success) success.style.display = "block"
   if (ytFrame) ytFrame.src = YT_EMBED_URL
 }
 
@@ -246,60 +243,4 @@ const advanceToStage2 = () => {
 
 initialFillStage1()
 
-// Verify succeeds only if:
-// - all 6 targets selected
-// - no invalid image ever selected
-document.getElementById("verify").addEventListener("click", () => {
-  const allTargetsSelected = Array.from(requiredTargets).every((n) =>
-    selectedTargets.has(n)
-  )
-
-  if (allTargetsSelected && !hasInvalidSelection) {
-    document.getElementById("solve-image-error-msg").style.display = "none"
-    document.getElementById("solve-box").style.display = "none"
-
-    showSuccess()
-  } else {
-    document.getElementById("solve-image-error-msg").style.display = "block"
-  }
-})
-
-// Refresh button: refresh all non-valid tiles; keep any unselected valid image visible.
-// Clears invalid flag to allow retry (your earlier behaviour).
-const refreshButton = document.getElementById("refresh")
-refreshButton.addEventListener("click", () => {
-  refreshButton.style.pointerEvents = "none"
-  solveImageContainer.classList.add("fade-out")
-  document.getElementById("solve-image-error-msg").style.display = "none"
-
-  setTimeout(() => {
-    solveImageContainer.classList.remove("fade-out")
-
-    hasInvalidSelection = false
-
-    gridImages.forEach((imgEl) => {
-      const num = getImgNumber(imgEl)
-      if (isValidNow(num) && !selectedTargets.has(num)) return
-      setImageNumber(imgEl, drawFiller())
-    })
-
-    fadeAllIfNoValidVisible()
-    refreshButton.style.pointerEvents = "auto"
-  }, 1000)
-})
-
-// toggle information
-document.getElementById("information").addEventListener("click", () => {
-  const information = document.getElementById("information-text")
-  if (information.style.display == "block") {
-    information.style.display = "none"
-  } else {
-    information.style.display = "block"
-  }
-})
-
-// show audio div
-document.getElementById("audio").addEventListener("click", () => {
-  document.getElementById("solve-image-div").style.display = "none"
-  document.getElementById("solve-audio-div").style.display = "block"
-})
+// Verify
