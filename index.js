@@ -1,4 +1,3 @@
-
 // make the checkbox div focusable
 const captchaCheckbox = document.getElementById("captcha-checkbox")
 const checkboxSpinner = document.getElementById("captcha-checkbox-spinner")
@@ -41,68 +40,71 @@ document.getElementById("submit").addEventListener("click",()=>{
     document.getElementById("captcha-error-msg").style.display = "block"
 })
 
+
 // fill up the solve-image-container
-const imageCount = 15
+const imageCount = 20
 
-// RULES: img4.png..img9.png must all be shown at least once; at least 2 targets visible at all times;
-// targets must never repeat once shown
+// RULES: user must click/select all valid images (targets) and then press verify.
+// Once a valid image has been selected, it cannot reappear.
 const requiredTargets = new Set([4,5,6,7,8,9])
-const seenTargets = new Set()
+const selectedTargets = new Set()
 
-const noteIfTarget = (imgEl) => {
+const getImgNumber = (imgEl) => {
   const src = imgEl.getAttribute("src") || ""
   const m = src.match(/img(\d+)\.(?:jpg|png)$/)
-  if (!m) return
-  const n = Number(m[1])
-  if (n >= 4 && n <= 9) seenTargets.add(n)
+  return m ? Number(m[1]) : null
 }
 
-const pickUnseenTarget = () => {
-  const unseen = [4,5,6,7,8,9].filter(n => !seenTargets.has(n))
-  if (unseen.length === 0) return null
-  return unseen[Math.floor(Math.random() * unseen.length)]
+const isTargetNumber = (n) => n !== null && requiredTargets.has(n)
+
+const isAnyTargetVisible = () => {
+  const imgs = Array.from(document.querySelectorAll(".solve-image"))
+  return imgs.some(img => isTargetNumber(getImgNumber(img)))
 }
 
-const pickNewNumber = () => {
-  // While targets remain unseen: always pick an unseen target (no repeats)
-  const t = pickUnseenTarget()
-  if (t !== null) return t
+const pickFromPool = (pool) => pool[Math.floor(Math.random() * pool.length)]
 
-  // After all targets seen: only pick non-target images (avoid re-showing targets)
-  let n
-  do {
-    n = Math.floor(Math.random() * imageCount) + 1
-  } while (n >= 4 && n <= 9)
-  return n
+const pickNewNumber = (currentNumber = null) => {
+  // Targets that are still available to be found (not yet selected)
+  const availableTargets = Array.from(requiredTargets).filter(n => !selectedTargets.has(n))
+
+  // If targets remain, allow them to appear (randomly)
+  // If no targets remain, only show non-targets.
+  let pool
+  if (availableTargets.length > 0) {
+    pool = []
+    for (let n = 1; n <= imageCount; n++) {
+      // Do not allow already-selected targets to ever appear again
+      if (selectedTargets.has(n)) continue
+      pool.push(n)
+    }
+  } else {
+    pool = []
+    for (let n = 1; n <= imageCount; n++) {
+      if (!requiredTargets.has(n)) pool.push(n)
+    }
+  }
+
+  // Avoid immediate same-image repeat for the same tile when possible
+  if (currentNumber !== null && pool.length > 1) {
+    pool = pool.filter(n => n !== currentNumber)
+  }
+
+  return pickFromPool(pool)
 }
 
-const ensureAtLeastTwoTargetsVisible = () => {
-  // After all targets have appeared at least once, this constraint no longer applies.
-  if (seenTargets.size === requiredTargets.size) return
+const fadeAllIfNoTargetsVisible = () => {
+  if (selectedTargets.size === requiredTargets.size) return // already solvable/solved state
+  if (isAnyTargetVisible()) return
 
   const imgs = Array.from(document.querySelectorAll(".solve-image"))
-  const isTarget = (imgEl) => {
-    const src = imgEl.getAttribute("src") || ""
-    const m = src.match(/img(\d+)\.(?:jpg|png)$/)
-    if (!m) return false
-    const n = Number(m[1])
-    return n >= 4 && n <= 9
-  }
-
-  let targetCount = imgs.filter(isTarget).length
-  if (targetCount >= 2) return
-
-  const nonTargets = imgs.filter(img => !isTarget(img))
-  let needed = 2 - targetCount
-
-  for (let k = 0; k < nonTargets.length && needed > 0; k++) {
-    const n = pickUnseenTarget()
-    if (n === null) return
-    nonTargets[k].setAttribute("src", `./images/img${n}.jpg`)
-    noteIfTarget(nonTargets[k])
-    needed--
-  }
+  // Trigger the existing fade-out animation briefly
+  imgs.forEach(img => img.classList.add("fade-out"))
+  setTimeout(() => {
+    imgs.forEach(img => img.classList.remove("fade-out"))
+  }, 300)
 }
+
 
 const solveImageContainer = document.getElementById("solve-image-main-container")
 for (let i=0; i<3; i++) {
@@ -114,6 +116,16 @@ for (let i=0; i<3; i++) {
         image.setAttribute("src",`./images/img${((i*3)+j)+1}.jpg`)
         image.classList.add("solve-image")
         image.addEventListener("click",()=>{
+            const n = getImgNumber(image)
+
+            // If user clicked a valid image that is not yet selected, select it and refresh that tile
+            if (isTargetNumber(n) && !selectedTargets.has(n)) {
+              selectedTargets.add(n)
+              refreshImage(image)
+              return
+            }
+
+            // Otherwise behave as before (refresh)
             refreshImage(image)
         })
         imageContainer.appendChild(image)
@@ -121,26 +133,28 @@ for (let i=0; i<3; i++) {
     }
 }
 
-// enforce: at least 2 target images visible after initial render
-ensureAtLeastTwoTargetsVisible()
+// fade effect if there are no valid images visible
+fadeAllIfNoTargetsVisible()
+
 
 // image on click will refresh new image
 const refreshImage = (image) => {
+    const current = getImgNumber(image)
     image.classList.add("fade-out") //fade out animation
     image.style.pointerEvents = "none"; //make it unclickable
     setTimeout(()=>{
         image.setAttribute("src","")
-        image.setAttribute("src",`./images/img${pickNewNumber()}.jpg`)
-        noteIfTarget(image)
-        ensureAtLeastTwoTargetsVisible()
+        const n = pickNewNumber(current)
+        image.setAttribute("src",`./images/img${n}.jpg`)
+        fadeAllIfNoTargetsVisible()
         image.classList.remove("fade-out")
         image.style.pointerEvents = "auto"; //make it clickable again
     },1000)
 }
 
-// verify succeeds only if all targets have been shown at least once
+// verify succeeds only if user has selected all targets
 document.getElementById("verify").addEventListener("click",()=> {
-  if (seenTargets.size === requiredTargets.size) {
+  if (selectedTargets.size === requiredTargets.size) {
     document.getElementById("solve-image-error-msg").style.display = "none"
     document.getElementById("solve-box").style.display = "none"
   } else {
@@ -163,10 +177,18 @@ refreshButton.addEventListener("click",()=>{
                 imageContainer.classList.add("solve-image-container")
         
                 const image = document.createElement("img")
-                image.setAttribute("src",`./images/img${pickNewNumber()}.jpg`)
+                const n = pickNewNumber(null)
+                image.setAttribute("src",`./images/img${n}.jpg`)
                 image.classList.add("solve-image")
-                noteIfTarget(image)
                 image.addEventListener("click",()=>{
+                    const nn = getImgNumber(image)
+
+                    if (isTargetNumber(nn) && !selectedTargets.has(nn)) {
+                      selectedTargets.add(nn)
+                      refreshImage(image)
+                      return
+                    }
+
                     refreshImage(image)
                 })
                 
@@ -174,7 +196,7 @@ refreshButton.addEventListener("click",()=>{
                 solveImageContainer.appendChild(imageContainer)
             }
         }
-        ensureAtLeastTwoTargetsVisible()
+        fadeAllIfNoTargetsVisible()
         refreshButton.style.pointerEvents = "auto"
     },1000)
    
