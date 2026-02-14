@@ -23,7 +23,11 @@ captchaCheckbox.addEventListener("click", () => {
 
     // show the solve box
     const solveBox = document.getElementById("solve-box")
-    solveBox.style.display = solveBox.style.display === "block" ? "none" : "block"
+    if (solveBox.style.display == "block") {
+      solveBox.style.display = "none"
+    } else {
+      solveBox.style.display = "block"
+    }
   }, Math.floor(Math.random() * 1000) + 200)
 })
 
@@ -38,6 +42,7 @@ const captchaMain = document.getElementById("captcha-main-div")
 const success = document.getElementById("success")
 const ytFrame = document.getElementById("yt")
 
+// Correct embed URL (not youtu.be, not watch?v=). Unmuted.
 const YT_EMBED_URL = "https://www.youtube.com/embed/KfDargQ3jis?start=1&autoplay=1"
 
 function showSuccess() {
@@ -56,20 +61,22 @@ const requiredTargets = new Set([...stage1Targets, ...stage2Targets])
 
 let stage = 1 // 1 or 2
 const selectedTargets = new Set()
-let hasInvalidSelection = false
+
+// ALLOW UP TO ONE INVALID SELECTION (mobile safeguard)
+let invalidSelections = 0
+const MAX_INVALID_SELECTIONS = 1
 
 // Never show any image more than once overall
 const usedNumbers = new Set()
 // Never show any image more than once at the same time
 const currentOnScreen = new Set()
 
-// Track pending refresh timeouts per tile
+// IMPORTANT FIX: track pending refresh timeouts per tile, so they cannot overwrite stage 2 targets
 const pendingRefreshTimeoutByImg = new Map()
 
-// Robust: handles absolute URLs and query strings (common on mobile/CDNs)
 const getImgNumber = (imgEl) => {
   const src = imgEl.getAttribute("src") || ""
-  const m = src.match(/img(\d+)\.(?:jpg|jpeg|png|webp)(?:\?.*)?$/i)
+  const m = src.match(/img(\d+)\.(?:jpg|png)$/)
   return m ? Number(m[1]) : null
 }
 
@@ -109,6 +116,7 @@ const drawFiller = () => {
   return null
 }
 
+// If n is null (deck exhausted), hide the tile instead of showing a broken image icon.
 const setImageNumber = (imgEl, n) => {
   const prev = getImgNumber(imgEl)
   if (prev !== null) currentOnScreen.delete(prev)
@@ -128,6 +136,7 @@ const setImageNumber = (imgEl, n) => {
   currentOnScreen.add(n)
 }
 
+// brief fade if there are no valid images on screen but there are still valid images to find in the current stage
 const fadeAllIfNoValidVisible = () => {
   const stageTargets = stage === 1 ? stage1Targets : stage2Targets
   const remaining = stageTargets.filter((n) => !selectedTargets.has(n))
@@ -145,46 +154,6 @@ const fadeAllIfNoValidVisible = () => {
 const solveImageContainer = document.getElementById("solve-image-main-container")
 const gridImages = []
 
-const cancelPendingForTile = (imgEl) => {
-  const prior = pendingRefreshTimeoutByImg.get(imgEl)
-  if (prior) {
-    clearTimeout(prior)
-    pendingRefreshTimeoutByImg.delete(imgEl)
-  }
-}
-
-// CRITICAL FIX: do not just cancel – flush pending refreshes by replacing immediately
-const flushAllPendingTileRefreshes = () => {
-  for (const [imgEl, timeoutId] of pendingRefreshTimeoutByImg.entries()) {
-    clearTimeout(timeoutId)
-    imgEl.classList.remove("fade-out")
-    imgEl.style.pointerEvents = "auto"
-    setImageNumber(imgEl, drawFiller())
-  }
-  pendingRefreshTimeoutByImg.clear()
-}
-
-// Animated delayed refresh (normal behaviour)
-const refreshToFiller = (imgEl) => {
-  const current = getImgNumber(imgEl)
-  if (isValidNow(current) && !selectedTargets.has(current)) return
-
-  cancelPendingForTile(imgEl)
-
-  imgEl.classList.add("fade-out")
-  imgEl.style.pointerEvents = "none"
-
-  const timeoutId = setTimeout(() => {
-    pendingRefreshTimeoutByImg.delete(imgEl)
-    setImageNumber(imgEl, drawFiller())
-    fadeAllIfNoValidVisible()
-    imgEl.classList.remove("fade-out")
-    imgEl.style.pointerEvents = "auto"
-  }, 1000)
-
-  pendingRefreshTimeoutByImg.set(imgEl, timeoutId)
-}
-
 for (let i = 0; i < 3; i++) {
   for (let j = 0; j < 3; j++) {
     const imageContainer = document.createElement("div")
@@ -200,18 +169,18 @@ for (let i = 0; i < 3; i++) {
       if (isValidNow(num) && !selectedTargets.has(num)) {
         selectedTargets.add(num)
 
-        // If stage 1 becomes complete on this tap, still schedule refresh,
-        // but stage transition will FLUSH it (so it cannot linger on mobile).
+        // Replace the selected valid image with a filler so it cannot reappear
         refreshToFiller(image)
 
+        // If stage 1 complete, transition to stage 2
         if (stage === 1 && stage1Targets.every((n) => selectedTargets.has(n))) {
           advanceToStage2()
         }
         return
       }
 
-      // Invalid click: mark failure and refresh that tile to a filler
-      hasInvalidSelection = true
+      // Invalid click: count it and refresh that tile to a filler
+      invalidSelections += 1
       refreshToFiller(image)
     })
 
@@ -221,13 +190,44 @@ for (let i = 0; i < 3; i++) {
   }
 }
 
+// Refresh a tile to the next filler image (no targets here).
+// Do not let an unselected valid image disappear (avoids impossible stage).
+const refreshToFiller = (image) => {
+  const current = getImgNumber(image)
+  if (isValidNow(current) && !selectedTargets.has(current)) return
+
+  // FIX: cancel any previous pending timeout for this image
+  const prior = pendingRefreshTimeoutByImg.get(image)
+  if (prior) {
+    clearTimeout(prior)
+    pendingRefreshTimeoutByImg.delete(image)
+  }
+
+  image.classList.add("fade-out")
+  image.style.pointerEvents = "none"
+
+  const timeoutId = setTimeout(() => {
+    pendingRefreshTimeoutByImg.delete(image)
+    setImageNumber(image, drawFiller())
+    fadeAllIfNoValidVisible()
+    image.classList.remove("fade-out")
+    image.style.pointerEvents = "auto"
+  }, 1000)
+
+  pendingRefreshTimeoutByImg.set(image, timeoutId)
+}
+
+// Place the three stage-1 valid images into RANDOM positions, not “top row”.
 const initialFillStage1 = () => {
-  const positions = shuffle([...Array(9).keys()])
+  const positions = shuffle([...Array(9).keys()]) // 0..8 shuffled
   const targets = shuffle([...stage1Targets])
 
+  // Place 3 valid targets
   for (let k = 0; k < 3; k++) {
     setImageNumber(gridImages[positions[k]], targets[k])
   }
+
+  // Fill remaining 6 with fillers
   for (let k = 3; k < 9; k++) {
     setImageNumber(gridImages[positions[k]], drawFiller())
   }
@@ -235,11 +235,22 @@ const initialFillStage1 = () => {
   fadeAllIfNoValidVisible()
 }
 
+// FIX: ensure no pending refresh can overwrite stage-2 targets
+const cancelAllPendingTileRefreshes = () => {
+  for (const [imgEl, timeoutId] of pendingRefreshTimeoutByImg.entries()) {
+    clearTimeout(timeoutId)
+    imgEl.classList.remove("fade-out")
+    imgEl.style.pointerEvents = "auto"
+  }
+  pendingRefreshTimeoutByImg.clear()
+}
+
+// Stage transition: fade, then place stage-2 valid images in RANDOM positions.
 const advanceToStage2 = () => {
   stage = 2
 
-  // CRITICAL FIX: flush pending refreshes so no stage-1 targets can remain visible
-  flushAllPendingTileRefreshes()
+  // FIX: cancel any in-flight tile refresh that might overwrite the new targets
+  cancelAllPendingTileRefreshes()
 
   solveImageContainer.classList.add("fade-out")
   setTimeout(() => {
@@ -248,18 +259,12 @@ const advanceToStage2 = () => {
     const positions = shuffle([...Array(9).keys()])
     const targets = shuffle([...stage2Targets])
 
-    // Place 3 stage-2 targets into random positions
+    // Place 3 stage-2 targets into random positions (overwrite whatever was there)
     for (let k = 0; k < 3; k++) {
       const imgEl = gridImages[positions[k]]
       imgEl.classList.remove("fade-out")
       imgEl.style.pointerEvents = "auto"
       setImageNumber(imgEl, targets[k])
-    }
-
-    // Safety: if any stage-1 target still visible (should not happen), remove it
-    for (const imgEl of gridImages) {
-      const n = getImgNumber(imgEl)
-      if (stage1Targets.includes(n)) setImageNumber(imgEl, drawFiller())
     }
 
     fadeAllIfNoValidVisible()
@@ -268,12 +273,15 @@ const advanceToStage2 = () => {
 
 initialFillStage1()
 
+// Verify succeeds only if:
+// - all 6 targets selected
+// - invalid selections <= MAX_INVALID_SELECTIONS
 document.getElementById("verify").addEventListener("click", () => {
   const allTargetsSelected = Array.from(requiredTargets).every((n) =>
     selectedTargets.has(n)
   )
 
-  if (allTargetsSelected && !hasInvalidSelection) {
+  if (allTargetsSelected && invalidSelections <= MAX_INVALID_SELECTIONS) {
     document.getElementById("solve-image-error-msg").style.display = "none"
     document.getElementById("solve-box").style.display = "none"
     showSuccess()
@@ -282,6 +290,8 @@ document.getElementById("verify").addEventListener("click", () => {
   }
 })
 
+// Refresh button: refresh all non-valid tiles; keep any unselected valid image visible.
+// Clears invalid counter to allow retry.
 const refreshButton = document.getElementById("refresh")
 refreshButton.addEventListener("click", () => {
   refreshButton.style.pointerEvents = "none"
@@ -291,10 +301,10 @@ refreshButton.addEventListener("click", () => {
   setTimeout(() => {
     solveImageContainer.classList.remove("fade-out")
 
-    // Flush pending refreshes here as well (mobile reliability)
-    flushAllPendingTileRefreshes()
+    // Also cancel in-flight refreshes when user hits refresh
+    cancelAllPendingTileRefreshes()
 
-    hasInvalidSelection = false
+    invalidSelections = 0
 
     gridImages.forEach((imgEl) => {
       const num = getImgNumber(imgEl)
@@ -310,7 +320,11 @@ refreshButton.addEventListener("click", () => {
 // toggle information
 document.getElementById("information").addEventListener("click", () => {
   const information = document.getElementById("information-text")
-  information.style.display = information.style.display === "block" ? "none" : "block"
+  if (information.style.display == "block") {
+    information.style.display = "none"
+  } else {
+    information.style.display = "block"
+  }
 })
 
 // show audio div
@@ -318,6 +332,5 @@ document.getElementById("audio").addEventListener("click", () => {
   document.getElementById("solve-image-div").style.display = "none"
   document.getElementById("solve-audio-div").style.display = "block"
 })
-
 
 
